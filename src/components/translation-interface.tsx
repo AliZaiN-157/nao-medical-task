@@ -1,7 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Mic, Volume2, Languages, Loader2, AlertCircle } from "lucide-react";
+import {
+  Mic,
+  Volume2,
+  Languages,
+  Loader2,
+  AlertCircle,
+  Save,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -12,6 +19,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  languages,
+  enhanceWithMedicalTerminology,
+  getLanguageName,
+} from "@/lib/translation-service";
 
 interface Message {
   id: string;
@@ -55,20 +67,7 @@ export default function TranslationInterface() {
     },
   ]);
 
-  const languages: LanguageOption[] = [
-    { code: "en", name: "English" },
-    { code: "es", name: "Spanish" },
-    { code: "fr", name: "French" },
-    { code: "zh", name: "Mandarin" },
-    { code: "ar", name: "Arabic" },
-    { code: "ru", name: "Russian" },
-    { code: "pt", name: "Portuguese" },
-    { code: "hi", name: "Hindi" },
-    { code: "bn", name: "Bengali" },
-    { code: "ja", name: "Japanese" },
-    { code: "ko", name: "Korean" },
-    { code: "de", name: "German" },
-  ];
+  // Using languages imported from translation-service
 
   // Speech recognition setup
   const recognitionRef = useRef<any>(null);
@@ -151,44 +150,133 @@ export default function TranslationInterface() {
     setIsTranslating(true);
 
     try {
-      // In a real implementation, this would call an API like OpenAI
-      // For now, we'll simulate the translation with a timeout
-      setTimeout(() => {
-        const translations: Record<string, Record<string, string>> = {
-          en: {
-            es: "Necesito revisar su presión arterial y temperatura.",
-            fr: "Je dois vérifier votre tension artérielle et votre température.",
-            de: "Ich muss Ihren Blutdruck und Ihre Temperatur überprüfen.",
-          },
-          es: {
-            en: "I need to check your blood pressure and temperature.",
-            fr: "Je dois vérifier votre tension artérielle et votre température.",
-            de: "Ich muss Ihren Blutdruck und Ihre Temperatur überprüfen.",
-          },
-        };
+      // Use LibreTranslate API - a free and open source machine translation API
+      const response = await fetch("https://libretranslate.de/translate", {
+        method: "POST",
+        body: JSON.stringify({
+          q: text,
+          source: sourceLanguage,
+          target: targetLanguage,
+          format: "text",
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
 
-        // Get translation or use original text if no translation available
-        const translated =
-          translations[sourceLanguage]?.[targetLanguage] || text;
+      if (!response.ok) {
+        throw new Error(`Translation API error: ${response.status}`);
+      }
 
-        const newMessage = {
-          id: Date.now().toString(),
-          original: text,
-          translated,
-          fromLanguage: sourceLanguage,
-          toLanguage: targetLanguage,
-          timestamp: new Date(),
-        };
+      const data = await response.json();
+      const translated = data.translatedText || text;
 
-        setMessages((prev) => [...prev, newMessage]);
-        setIsTranslating(false);
-        setTranscript("");
-      }, 1500);
+      // Add medical terminology enhancement for healthcare context
+      const enhancedTranslation = await enhanceWithMedicalTerminology(
+        translated,
+        targetLanguage,
+      );
+
+      const newMessage = {
+        id: Date.now().toString(),
+        original: text,
+        translated: enhancedTranslation,
+        fromLanguage: sourceLanguage,
+        toLanguage: targetLanguage,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, newMessage]);
+      setIsTranslating(false);
+      setTranscript("");
     } catch (err) {
       console.error("Translation error:", err);
-      setError("Failed to translate text");
+      setError("Translation service unavailable. Using fallback translation.");
+
+      // Fallback to basic translations if API fails
+      const fallbackTranslations: Record<string, Record<string, string>> = {
+        en: {
+          es: text.includes("blood pressure")
+            ? "Necesito revisar su presión arterial y temperatura."
+            : text,
+          fr: text.includes("blood pressure")
+            ? "Je dois vérifier votre tension artérielle et votre température."
+            : text,
+          de: text.includes("blood pressure")
+            ? "Ich muss Ihren Blutdruck und Ihre Temperatur überprüfen."
+            : text,
+        },
+        es: {
+          en: text.includes("presión")
+            ? "I need to check your blood pressure and temperature."
+            : text,
+          fr: text.includes("presión")
+            ? "Je dois vérifier votre tension artérielle et votre température."
+            : text,
+          de: text.includes("presión")
+            ? "Ich muss Ihren Blutdruck und Ihre Temperatur überprüfen."
+            : text,
+        },
+      };
+
+      const fallbackTranslated =
+        fallbackTranslations[sourceLanguage]?.[targetLanguage] || text;
+
+      const newMessage = {
+        id: Date.now().toString(),
+        original: text,
+        translated: fallbackTranslated,
+        fromLanguage: sourceLanguage,
+        toLanguage: targetLanguage,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, newMessage]);
       setIsTranslating(false);
+      setTranscript("");
     }
+  };
+
+  // Function to enhance translations with medical terminology
+  const enhanceWithMedicalTerminology = async (
+    text: string,
+    targetLang: string,
+  ): Promise<string> => {
+    // In a production environment, this would call a specialized medical terminology API
+    // For now, we'll enhance common medical terms
+    const medicalTerms: Record<string, Record<string, string>> = {
+      en: {
+        headache: "headache (cephalgia)",
+        "blood pressure": "blood pressure (BP)",
+        "heart rate": "heart rate (HR)",
+        temperature: "temperature (temp)",
+        pain: "pain (on a scale of 1-10)",
+      },
+      es: {
+        "dolor de cabeza": "dolor de cabeza (cefalea)",
+        "presión arterial": "presión arterial (PA)",
+        "ritmo cardíaco": "ritmo cardíaco (RC)",
+        temperatura: "temperatura (temp)",
+        dolor: "dolor (en una escala de 1-10)",
+      },
+      fr: {
+        "mal de tête": "mal de tête (céphalalgie)",
+        "tension artérielle": "tension artérielle (TA)",
+        "rythme cardiaque": "rythme cardiaque (RC)",
+        température: "température (temp)",
+        douleur: "douleur (sur une échelle de 1 à 10)",
+      },
+    };
+
+    // Only enhance if we have medical terms for this language
+    if (!medicalTerms[targetLang]) return text;
+
+    let enhancedText = text;
+    Object.entries(medicalTerms[targetLang]).forEach(([term, replacement]) => {
+      // Case insensitive replacement
+      const regex = new RegExp(term, "gi");
+      enhancedText = enhancedText.replace(regex, replacement);
+    });
+
+    return enhancedText;
   };
 
   const handlePlayAudio = (messageId: string, text: string) => {
@@ -219,9 +307,7 @@ export default function TranslationInterface() {
     synth.speak(utterance);
   };
 
-  const getLanguageName = (code: string): string => {
-    return languages.find((lang) => lang.code === code)?.name || code;
-  };
+  // Using getLanguageName imported from translation-service
 
   return (
     <div className="flex flex-col h-full bg-white rounded-lg shadow-lg overflow-hidden">
@@ -320,21 +406,46 @@ export default function TranslationInterface() {
 
       {/* Recording Controls */}
       <div className="p-4 border-t flex flex-col items-center">
-        <Button
-          className={`rounded-full w-16 h-16 ${isRecording ? "bg-red-500 hover:bg-red-600" : "bg-teal-600 hover:bg-teal-700"}`}
-          onMouseDown={handleStartRecording}
-          onMouseUp={handleStopRecording}
-          onTouchStart={handleStartRecording}
-          onTouchEnd={handleStopRecording}
-          disabled={isTranslating}
-        >
-          {isTranslating ? (
-            <Loader2 className="h-6 w-6 animate-spin" />
-          ) : (
-            <Mic className="h-6 w-6" />
-          )}
-        </Button>
-        <div className="text-xs text-gray-500 mt-2 text-center">
+        <div className="flex gap-4 mb-4">
+          <Button
+            className={`rounded-full w-16 h-16 ${isRecording ? "bg-red-500 hover:bg-red-600" : "bg-teal-600 hover:bg-teal-700"}`}
+            onMouseDown={handleStartRecording}
+            onMouseUp={handleStopRecording}
+            onTouchStart={handleStartRecording}
+            onTouchEnd={handleStopRecording}
+            disabled={isTranslating}
+          >
+            {isTranslating ? (
+              <Loader2 className="h-6 w-6 animate-spin" />
+            ) : (
+              <Mic className="h-6 w-6" />
+            )}
+          </Button>
+
+          <Button
+            variant="outline"
+            className="rounded-full w-12 h-12"
+            onClick={() => {
+              // Save conversation functionality
+              const conversationData = JSON.stringify(messages);
+              const blob = new Blob([conversationData], {
+                type: "application/json",
+              });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `medical-translation-${new Date().toISOString().slice(0, 10)}.json`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }}
+          >
+            <Save className="h-5 w-5 text-teal-600" />
+          </Button>
+        </div>
+
+        <div className="text-xs text-gray-500 text-center">
           {isRecording ? "Release to translate" : "Hold to speak"}
         </div>
       </div>
