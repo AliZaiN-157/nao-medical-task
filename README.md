@@ -23,6 +23,7 @@ The **Healthcare Translation Web App** is a real-time, multilingual translation 
 
 ## 📸 Screenshots
 ### 🏠 Main Page
+
 ![Main Page](/assets/MainPage1.png)
 ![Main Page](/assets/MainPage2.png)
 ![Main Page](/assets/MainPage3.png)
